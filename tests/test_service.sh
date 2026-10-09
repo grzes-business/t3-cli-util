@@ -218,6 +218,8 @@ test_cross_user_goes_through_sudo() {
   write_config 'AGENT_USER=root' 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
   t3 restart >/dev/null
   assert_contains "$(cat "$MOCK_LOG")" "sudo -u root -- env HOME=/root XDG_RUNTIME_DIR=$T/run/0 DBUS_SESSION_BUS_ADDRESS=unix:path=$T/run/0/bus"
+  # The bus lives in a 0700 dir owned by the agent; it must be checked as the agent.
+  assert_contains "$(cat "$MOCK_LOG")" "LC_ALL=C test -S $T/run/0/bus"
   write_config 'T3_PORT=3773' 'BUS_WAIT_SECONDS=1' 'START_TIMEOUT_SECONDS=1' 'AGENT_STORAGE_DIRS=(.t3ctl-test-none)'
 }
 

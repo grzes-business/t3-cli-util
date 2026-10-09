@@ -18,7 +18,9 @@ user_manager_unit() {
 
 user_manager_active() { systemctl is-active --quiet "$(user_manager_unit)"; }
 
-user_bus_present() { [[ -S $(agent_bus_path) ]]; }
+# Checked as the agent: /run/user/<uid> is mode 700, so other users (even
+# the operator) cannot see the socket and would report it missing.
+user_bus_present() { run_as_agent test -S "$(agent_bus_path)" 2>/dev/null; }
 
 # Poll a command until it succeeds or the timeout (seconds) elapses.
 wait_for() {
