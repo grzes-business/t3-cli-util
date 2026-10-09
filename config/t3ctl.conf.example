@@ -1,0 +1,40 @@
+# t3ctl configuration (optional).
+#
+# Copy to ~/.config/t3ctl/config (or point T3CTL_CONFIG at another file).
+# The file is sourced by bash, so it must be owned by you (or root) and must
+# not be group/world-writable. Every value below is the built-in default.
+
+# Unix account that runs the coding agents and owns the user service.
+#AGENT_USER="agent"
+
+# systemd *user* unit (in AGENT_USER's manager) to manage.
+#T3_SERVICE="t3code.service"
+
+# TCP port the service is expected to listen on. Empty disables the check.
+#T3_PORT="3773"
+
+# Application log file written by the service (StandardOutput=append:...).
+# Defaults to <agent home>/.t3/userdata/logs/boot-service.log
+#T3_LOG_FILE=""
+
+# Directory containing agent worktrees.
+# Defaults to <agent home>/.t3/worktrees
+#WORKTREE_ROOT=""
+
+# How deep below WORKTREE_ROOT to look for worktrees (root/<project>/<name> = 2).
+#WORKTREE_SCAN_DEPTH=4
+
+# Directory *names* that `t3ctl worktree <id> clean` may delete. Only
+# directories that git ignores and that contain no tracked files are removed.
+#SAFE_CLEAN_DIRS=(node_modules .next .turbo dist build coverage)
+
+# Agent home sub-directories reported by `t3ctl disk`.
+#AGENT_STORAGE_DIRS=(.t3/worktrees .cache .bun .local .codex .cursor .npm)
+
+# Disk usage thresholds (percent).
+#DISK_WARN_PCT=85
+#DISK_CRIT_PCT=95
+
+# Seconds to wait for the user bus / service / port after recovery actions.
+#BUS_WAIT_SECONDS=10
+#START_TIMEOUT_SECONDS=30

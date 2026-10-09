@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# t3ctl - operations CLI for a coding-agent host.
+set -euo pipefail
+
+T3CTL_HOME=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)
+
+# shellcheck source=../lib/common.sh
+source "$T3CTL_HOME/lib/common.sh"
+# shellcheck source=../lib/service.sh
+source "$T3CTL_HOME/lib/service.sh"
+# shellcheck source=../lib/worktrees.sh
+source "$T3CTL_HOME/lib/worktrees.sh"
+# shellcheck source=../lib/disk.sh
+source "$T3CTL_HOME/lib/disk.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: t3ctl [--yes] <command> [args]
+
+Service (agent's systemd user service):
+  service status            show service, user manager, bus and port state
+  service start|stop        start / stop the service
+  service restart           restart the service
+  service reset             recover: ensure bus, stop, reset-failed, start, verify
+  service logs [opts]       show logs (-n N, -f, --journal, --file)
+
+  status | start | stop | restart | reset | logs   aliases for the above
+
+Worktrees:
+  worktrees [opts]          list worktrees
+      --sort size|age|project|commit   (default: age, newest first)
+      --older-than DUR                 e.g. 12h, 7d, 2w, 3mo
+      --no-size                        skip disk usage (fast)
+  worktree <id> info        detailed state and safety checks
+  worktree <id> clean       delete generated artifacts (node_modules, .next, ...)
+  worktree <id> remove      git worktree remove, only if nothing can be lost
+
+Host:
+  disk                      filesystem and agent storage usage
+  doctor                    diagnose runtime and storage health
+
+Options:
+  -y, --yes                 do not ask for confirmation
+  -h, --help                show this help
+  -V, --version             show version
+
+Configuration: ~/.config/t3ctl/config (see config/t3ctl.conf.example).
+EOF
+}
+
+main() {
+  T3CTL_ASSUME_YES=${T3CTL_ASSUME_YES:-0}
+  while (($#)); do
+    case $1 in
+      -y | --yes) T3CTL_ASSUME_YES=1 ;;
+      -h | --help | help)
+        usage
+        return 0
+        ;;
+      -V | --version)
+        printf 't3ctl %s\n' "$T3CTL_VERSION"
+        return 0
+        ;;
+      -*) die "unknown option: $1 (see t3ctl --help)" ;;
+      *) break ;;
+    esac
+    shift
+  done
+  (($#)) || {
+    usage >&2
+    return 2
+  }
+
+  load_config
+
+  local cmd=$1
+  shift
+  case $cmd in
+    service)
+      (($#)) || die "usage: t3ctl service status|start|stop|restart|reset|logs"
+      local sub=$1
+      shift
+      service_dispatch "$sub" "$@"
+      ;;
+    status | start | stop | restart | reset | logs) service_dispatch "$cmd" "$@" ;;
+    worktrees) cmd_worktrees "$@" ;;
+    worktree)
+      (($# >= 2)) || die "usage: t3ctl worktree <id> info|clean|remove"
+      cmd_worktree "$@"
+      ;;
+    disk) cmd_disk "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    *) die "unknown command: $cmd (see t3ctl --help)" ;;
+  esac
+}
+
+main "$@"
