@@ -4,13 +4,13 @@ set -euo pipefail
 
 T3CTL_HOME=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)
 
-# shellcheck source=../lib/common.sh
+# shellcheck source=lib/common.sh
 source "$T3CTL_HOME/lib/common.sh"
-# shellcheck source=../lib/service.sh
+# shellcheck source=lib/service.sh
 source "$T3CTL_HOME/lib/service.sh"
-# shellcheck source=../lib/worktrees.sh
+# shellcheck source=lib/worktrees.sh
 source "$T3CTL_HOME/lib/worktrees.sh"
-# shellcheck source=../lib/disk.sh
+# shellcheck source=lib/disk.sh
 source "$T3CTL_HOME/lib/disk.sh"
 
 usage() {

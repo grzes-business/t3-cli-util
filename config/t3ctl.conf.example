@@ -38,3 +38,8 @@
 # Seconds to wait for the user bus / service / port after recovery actions.
 #BUS_WAIT_SECONDS=10
 #START_TIMEOUT_SECONDS=30
+
+# Extended regex matched against process names (comm) inside the service's
+# cgroup. Matching processes are reported before stop/restart/reset, which
+# would terminate them, and the command asks for confirmation.
+#AGENT_PROCESS_PATTERN='^(claude|codex|cursor|cursor-agent|gemini|opencode|aider|amp)$'

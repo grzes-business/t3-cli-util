@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034  # globals are consumed by other lib files
 # Shared helpers: output, configuration, user/privilege plumbing.
 
 T3CTL_VERSION="0.1.0"
@@ -111,6 +111,7 @@ load_config() {
   DISK_CRIT_PCT=95
   BUS_WAIT_SECONDS=10
   START_TIMEOUT_SECONDS=30
+  AGENT_PROCESS_PATTERN='^(claude|codex|cursor|cursor-agent|gemini|opencode|aider|amp)$'
 
   local cfg=${T3CTL_CONFIG:-${HOME:-}/.config/t3ctl/config}
   if [[ -n ${T3CTL_CONFIG:-} && ! -f $cfg ]]; then
