@@ -28,9 +28,10 @@ Service (agent's systemd user service):
 
 Worktrees:
   worktrees [opts]          list worktrees
-      --sort size|age|project|commit   (default: age, newest first)
+      --sort size|age|project|commit   (default: age; newest/largest first)
       --older-than DUR                 e.g. 12h, 7d, 2w, 3mo
       --no-size                        skip disk usage (fast)
+      -r, --reverse                    reverse the sort order
   worktree <id> info        detailed state and safety checks
   worktree <id> clean       delete generated artifacts (node_modules, .next, ...)
   worktree <id> remove      git worktree remove, only if nothing can be lost

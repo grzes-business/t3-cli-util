@@ -545,11 +545,12 @@ cmd_worktrees() {
   echo
   local summary="$shown worktree(s)"
   if ((with_size)); then
-    summary+=", $(human_kb "$total_kb") total"
+    summary+=", $(human_kb "$total_kb") summed"
     ((unknown_size)) && summary+=" (some sizes unknown)"
   fi
   summary+=", $safe safe to remove"
   printf '%s\n' "$summary"
+  ((with_size)) && printf '%sSIZE counts files hard-linked between worktrees in each one, so the sum overstates real usage (see: t3ctl disk).%s\n' "$C_DIM" "$C_RST"
   printf '%sAGE = last file change (excl. artifacts); DIRTY: M modified, U untracked; AHEAD: commits ahead of upstream, local = no upstream and not pushed, pushed = no upstream but on a remote branch%s\n' "$C_DIM" "$C_RST"
 }
 
@@ -695,7 +696,8 @@ cmd_worktree_clean() {
     return 1
   }
 
-  local failed=0
+  local failed=0 avail_before avail_after
+  avail_before=$(fs_stats "$p" | awk '{print $3}') || avail_before=''
   while IFS=$'\t' read -r status rel why; do
     case $status in
       deleted) ;;
@@ -712,6 +714,17 @@ cmd_worktree_clean() {
   printf 'Before: %s\nAfter:  %s\n' "$(human_kb "$before")" "$(human_kb "$after")"
   if [[ $before =~ ^[0-9]+$ && $after =~ ^[0-9]+$ ]]; then
     printf 'Freed:  %s\n' "$(human_kb $((before - after)))"
+  fi
+  # Hard-linked files shared with other worktrees free no disk space, so
+  # also report what the filesystem actually gained.
+  avail_after=$(fs_stats "$p" | awk '{print $3}') || avail_after=''
+  if [[ $avail_before =~ ^[0-9]+$ && $avail_after =~ ^[0-9]+$ ]]; then
+    printf 'Disk free: %s -> %s' "$(human_kb "$avail_before")" "$(human_kb "$avail_after")"
+    if ((avail_after >= avail_before)); then
+      printf ' (+%s)\n' "$(human_kb $((avail_after - avail_before)))"
+    else
+      printf '\n'
+    fi
   fi
   return "$failed"
 }

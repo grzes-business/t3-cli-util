@@ -109,6 +109,7 @@ load_config() {
   AGENT_STORAGE_DIRS=(.t3/worktrees .cache .bun .local .codex .cursor .npm)
   DISK_WARN_PCT=85
   DISK_CRIT_PCT=95
+  WORKTREE_WARN_PCT=50
   BUS_WAIT_SECONDS=10
   START_TIMEOUT_SECONDS=30
   AGENT_PROCESS_PATTERN='^(claude|codex|cursor|cursor-agent|gemini|opencode|aider|amp)$'

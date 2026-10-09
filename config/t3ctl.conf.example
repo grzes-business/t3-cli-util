@@ -35,6 +35,9 @@
 #DISK_WARN_PCT=85
 #DISK_CRIT_PCT=95
 
+# Warn when worktrees take at least this share (percent) of used disk space.
+#WORKTREE_WARN_PCT=50
+
 # Seconds to wait for the user bus / service / port after recovery actions.
 #BUS_WAIT_SECONDS=10
 #START_TIMEOUT_SECONDS=30
