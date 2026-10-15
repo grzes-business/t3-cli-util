@@ -74,6 +74,14 @@ echo "journalctl $*" >>"$MOCK_LOG"
 echo "mock journal line"
 EOF
 
+cat >"$MOCK/t3-update" <<'EOF'
+#!/usr/bin/env bash
+printf 'update HOME=%s runtime=%s args:' "$HOME" "$XDG_RUNTIME_DIR" >>"$MOCK_LOG"
+printf ' <%s>' "$@" >>"$MOCK_LOG"
+printf '\n' >>"$MOCK_LOG"
+[[ ! -e $MOCK_STATE/update_fails ]]
+EOF
+
 for f in pkill killall kill; do
   printf '#!/usr/bin/env bash\necho "FORBIDDEN %s $*" >>"$MOCK_LOG"\n' "$f" >"$MOCK/$f"
 done
@@ -221,6 +229,88 @@ test_cross_user_goes_through_sudo() {
   # The bus lives in a 0700 dir owned by the agent; it must be checked as the agent.
   assert_contains "$(cat "$MOCK_LOG")" "LC_ALL=C test -S $T/run/0/bus"
   write_config 'T3_PORT=3773' 'BUS_WAIT_SECONDS=1' 'START_TIMEOUT_SECONDS=1' 'AGENT_STORAGE_DIRS=(.t3ctl-test-none)'
+}
+
+update_config() {
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1' 'T3_UPDATE_COMMAND=(t3-update "two words" "\$(literal)")'
+}
+
+test_update_runs_as_agent_then_restarts() {
+  reset_mocks
+  update_config
+  local out log
+  out=$(t3 update)
+  log=$(cat "$MOCK_LOG")
+  assert_contains "$out" "is active and listening on port 3773"
+  assert_contains "$log" 'args: <two words> <$(literal)>'
+  assert_contains "$log" "runtime=$T/run/$UID_SELF"
+  assert_eq "$(sed -n '/^update /p; /systemctl --user restart /p' "$MOCK_LOG" | sed 's/ .*//' | paste -sd' ' -)" "update systemctl" "update before restart"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
+test_update_requires_configuration() {
+  reset_mocks
+  write_config 'T3_PORT=3773'
+  local out rc=0
+  out=$(t3 update) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "T3_UPDATE_COMMAND"
+  assert_not_contains "$(cat "$MOCK_LOG")" "--user restart"
+}
+
+test_update_failure_does_not_restart() {
+  reset_mocks
+  update_config
+  touch "$MOCK_STATE/update_fails"
+  local out rc=0
+  out=$(t3 service update) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "update command failed"
+  assert_not_contains "$(cat "$MOCK_LOG")" "--user restart"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
+test_update_rejects_extra_arguments() {
+  reset_mocks
+  update_config
+  local out rc=0
+  out=$(t3 update --bogus) || rc=$?
+  assert_eq "$rc" 1
+  assert_not_contains "$(cat "$MOCK_LOG")" "update HOME="
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
+test_update_verifies_port() {
+  reset_mocks
+  update_config
+  rm -f "$MOCK_STATE/listening"
+  touch "$MOCK_STATE/no_listen"
+  local out rc=0
+  out=$(t3 update) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "port 3773 is not listening"
+  assert_contains "$out" "Recent service journal"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
+test_update_confirms_sessions_before_installing() {
+  reset_mocks
+  mkdir -p "$T/cg/svc"
+  sleep 30 &
+  local pid=$! out rc=0
+  echo "$pid" >"$T/cg/svc/cgroup.procs"
+  echo /svc >"$MOCK_STATE/cgroup"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1' 'T3_UPDATE_COMMAND=(t3-update)' "AGENT_PROCESS_PATTERN='^sleep\$'"
+  out=$(t3 update </dev/null) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "terminates agent sessions"
+  assert_not_contains "$(cat "$MOCK_LOG")" "update HOME="
+  out=$(t3 --yes update)
+  assert_contains "$out" "is active"
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  rm -rf "$T/cg"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
 }
 
 test_never_kills_processes() {
