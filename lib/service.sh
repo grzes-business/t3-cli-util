@@ -230,6 +230,32 @@ cmd_service_restart() {
   verify_started
 }
 
+# Run from the agent's home, independent of the operator's working directory.
+_service_update_exec() {
+  cd -- "$HOME" || return 1
+  "$@"
+}
+
+cmd_service_update() {
+  (($# == 0)) || die "usage: t3ctl update (configure T3_UPDATE_COMMAND in your config)"
+  local declaration
+  declaration=$(declare -p T3_UPDATE_COMMAND)
+  [[ $declaration == 'declare -a '* && ${#T3_UPDATE_COMMAND[@]} -gt 0 && -n ${T3_UPDATE_COMMAND[0]} ]] ||
+    die "configure T3_UPDATE_COMMAND as a non-empty bash array for your T3 installation (see config/t3ctl.conf.example)"
+  ensure_user_bus
+  confirm_session_impact "Updating and restarting"
+  note "Updating T3 as $AGENT_USER..."
+  if ! run_fn_as_agent "" _service_update_exec "${T3_UPDATE_COMMAND[@]}"; then
+    die "update command failed; service was not restarted (the installation may have changed; inspect updater output)"
+  fi
+  note "Restarting $T3_SERVICE as $AGENT_USER..."
+  run_agent_systemctl restart "$T3_SERVICE" || {
+    show_failure_context
+    die "update succeeded but service restart failed"
+  }
+  verify_started
+}
+
 # Systemd-level recovery. Never kills unrelated agent processes and never
 # touches worktrees, state or configuration.
 cmd_service_reset() {
@@ -315,6 +341,7 @@ service_dispatch() {
     start) cmd_service_start "$@" ;;
     stop) cmd_service_stop "$@" ;;
     restart) cmd_service_restart "$@" ;;
+    update) cmd_service_update "$@" ;;
     reset) cmd_service_reset "$@" ;;
     logs) cmd_service_logs "$@" ;;
     *) die "unknown service command: $sub" ;;

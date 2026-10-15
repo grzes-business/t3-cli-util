@@ -21,10 +21,11 @@ Service (agent's systemd user service):
   service status            show service, user manager, bus and port state
   service start|stop        start / stop the service
   service restart           restart the service
+  service update            run configured T3 updater, restart and verify
   service reset             recover: ensure bus, stop, reset-failed, start, verify
   service logs [opts]       show logs (-n N, -f, --journal, --file)
 
-  status | start | stop | restart | reset | logs   aliases for the above
+  status | start | stop | restart | reset | update | logs   aliases for the above
 
 Worktrees:
   worktrees [opts]          list worktrees
@@ -78,12 +79,12 @@ main() {
   shift
   case $cmd in
     service)
-      (($#)) || die "usage: t3ctl service status|start|stop|restart|reset|logs"
+      (($#)) || die "usage: t3ctl service status|start|stop|restart|reset|update|logs"
       local sub=$1
       shift
       service_dispatch "$sub" "$@"
       ;;
-    status | start | stop | restart | reset | logs) service_dispatch "$cmd" "$@" ;;
+    status | start | stop | restart | reset | update | logs) service_dispatch "$cmd" "$@" ;;
     worktrees) cmd_worktrees "$@" ;;
     worktree)
       (($# >= 2)) || die "usage: t3ctl worktree <id> info|clean|remove"

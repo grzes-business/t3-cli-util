@@ -270,6 +270,29 @@ test_update_failure_does_not_restart() {
   write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
 }
 
+test_update_restart_failure_reports_logs() {
+  reset_mocks
+  update_config
+  touch "$MOCK_STATE/start_fails"
+  local out rc=0
+  out=$(t3 update) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "update succeeded but service restart failed"
+  assert_contains "$out" "Recent service journal"
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
+test_update_rejects_scalar_command() {
+  reset_mocks
+  write_config 'unset T3_UPDATE_COMMAND' 'T3_UPDATE_COMMAND="t3-update --latest"'
+  local out rc=0
+  out=$(t3 update) || rc=$?
+  assert_eq "$rc" 1
+  assert_contains "$out" "non-empty bash array"
+  assert_not_contains "$(cat "$MOCK_LOG")" "update HOME="
+  write_config 'T3_PORT=3773' 'START_TIMEOUT_SECONDS=1'
+}
+
 test_update_rejects_extra_arguments() {
   reset_mocks
   update_config

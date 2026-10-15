@@ -12,6 +12,7 @@ worktrees under `~agent/.t3/worktrees`. An administrative account (e.g.
 ```text
 t3ctl doctor                      # first thing to run when something is off
 t3ctl status | restart | reset | logs
+t3ctl update                      # update T3 using your configured updater
 t3ctl disk
 t3ctl worktrees --sort size
 t3ctl worktree <id> info
@@ -52,6 +53,25 @@ Requirements: bash ≥ 4.4, git ≥ 2.31, coreutils, findutils, iproute2 (`ss`),
 systemd. The operator needs `sudo` rights to run commands as the agent user,
 plus root for the linger/user-manager recovery steps. Nothing else is needed.
 
+### Redeploy on a remote server
+
+Once the changes are available in the branch your server uses, SSH in as the
+operator account and update the existing checkout:
+
+```bash
+ssh ubuntu@YOUR_SERVER
+cd ~/src/t3ctl                    # use your actual clone location
+git pull --ff-only
+./install.sh                     # idempotent; refreshes the ~/bin symlink
+~/bin/t3ctl --version
+~/bin/t3ctl --help
+```
+
+The symlink points into this checkout, so there is no build step and no T3
+restart needed to redeploy **t3ctl**. If `git pull` reports local changes or a
+diverged branch, resolve those before proceeding; do not discard them blindly.
+To locate an existing installation, run `readlink -f "$(command -v t3ctl)"`.
+
 ## Configuration
 
 Optional: `~/.config/t3ctl/config` (or set `$T3CTL_CONFIG`). The file is sourced
@@ -62,6 +82,7 @@ group/world-writable. See [`config/t3ctl.conf.example`](config/t3ctl.conf.exampl
 |---|---|
 | `AGENT_USER` | `agent` |
 | `T3_SERVICE` | `t3code.service` |
+| `T3_UPDATE_COMMAND` | `()` (must be configured before `update`) |
 | `T3_PORT` | `3773` (empty disables the port check) |
 | `T3_LOG_FILE` | `<agent home>/.t3/userdata/logs/boot-service.log` |
 | `WORKTREE_ROOT` | `<agent home>/.t3/worktrees` |
@@ -97,10 +118,44 @@ agent account -> linger -> user@<uid>.service -> /run/user/<uid>/bus -> t3code.s
 
 > **Note:** T3 launches agent sessions (`claude`, `codex`, …) as children.
 > They live in `t3code.service`'s cgroup, so systemd ends them on
-> stop/restart/reset. Before these actions, t3ctl lists any such sessions and
+> stop/restart/reset/update. Before these actions, t3ctl lists any such sessions and
 > asks for confirmation (pass `--yes` to skip the prompt). Processes of the
 > agent user *outside* the service are never touched. t3ctl never uses
 > `pkill -u agent` or anything similar.
+
+### Update the T3 service
+
+`t3ctl update` (or `t3ctl service update`) executes `T3_UPDATE_COMMAND` as the
+agent account, then restarts `T3_SERVICE` and waits for the service and its
+configured port. Configure the updater to match the installation used by the
+unit; inspect its launch command by running
+`systemctl --user cat t3code.service` as the agent with its user-bus environment.
+
+Add a bash array to the operator's `~/.config/t3ctl/config`, for example:
+
+```bash
+T3_UPDATE_COMMAND=(/home/agent/bin/update-t3)
+```
+
+This executable script must perform the package update or checkout/build for
+your installation and exit nonzero on failure. Use absolute paths for tools
+that are absent from the operator's PATH. The updater runs from the agent's
+home with no login shell; arguments are passed literally, so put pipes,
+redirections, and multiple commands in the script. No installation method is
+assumed by default.
+
+```bash
+t3ctl update
+# For unattended use after checking active sessions:
+t3ctl --yes update
+```
+
+Before updating, t3ctl warns and asks for confirmation if the restart will end
+active agent sessions. If the updater fails, t3ctl returns an error and does
+not restart the service. An updater may partially change installed files;
+there is no automatic package rollback. If the restart or health check fails,
+t3ctl reports recent logs. It does not edit the unit or reload its definition;
+unit-file changes should use `t3ctl reset` afterward.
 
 ## Worktrees
 
@@ -226,7 +281,7 @@ the real worktrees.
 ```text
 bin/t3ctl          argument parsing + dispatch
 lib/common.sh      output helpers, config, agent/privilege plumbing
-lib/service.sh     user-systemd chain, status/start/stop/restart/reset/logs
+lib/service.sh     user-systemd chain, status/start/stop/restart/reset/update/logs
 lib/worktrees.sh   discovery, inspection, clean, remove (_wt_* run as agent)
 lib/disk.sh        disk + doctor
 ```

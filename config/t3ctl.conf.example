@@ -43,6 +43,14 @@
 #START_TIMEOUT_SECONDS=30
 
 # Extended regex matched against process names (comm) inside the service's
-# cgroup. Matching processes are reported before stop/restart/reset, which
+# cgroup. Matching processes are reported before stop/restart/reset/update, which
 # would terminate them, and the command asks for confirmation.
 #AGENT_PROCESS_PATTERN='^(claude|codex|cursor|cursor-agent|gemini|opencode|aider|amp)$'
+
+# Command to update the T3 installation used by the service. No default:
+# choose the command that matches your installation, using absolute paths
+# when the agent's package manager is not on the operator's PATH.
+# Executed as AGENT_USER from its home directory, without a login shell.
+# Arguments are a bash array, never evaluated as shell code.
+# Use an executable script that performs your package update or pull/build steps and returns nonzero on any failure:
+#T3_UPDATE_COMMAND=(/home/agent/bin/update-t3)

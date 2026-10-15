@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034  # globals are consumed by other lib files
 # Shared helpers: output, configuration, user/privilege plumbing.
 
-T3CTL_VERSION="0.1.0"
+T3CTL_VERSION="0.2.0"
 
 # ---------------------------------------------------------------- output
 
@@ -103,6 +103,7 @@ load_config() {
   T3_SERVICE="t3code.service"
   T3_PORT="3773"
   T3_LOG_FILE=""
+  T3_UPDATE_COMMAND=()
   WORKTREE_ROOT=""
   WORKTREE_SCAN_DEPTH=4
   SAFE_CLEAN_DIRS=(node_modules .next .turbo dist build coverage)
