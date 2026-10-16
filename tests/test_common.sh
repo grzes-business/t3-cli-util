@@ -71,7 +71,8 @@ test_missing_explicit_config() {
 test_usage_and_unknown_command() {
   local out rc=0
   out=$("$T3CTL" --help)
-  assert_contains "$out" "worktree <id> clean"
+  assert_contains "$out" "worktree <id> [id...] info|clean|remove"
+  assert_contains "$out" "worktrees info|clean|remove <selection> [--dry-run]"
   out=$("$T3CTL" frobnicate 2>&1) || rc=$?
   assert_eq "$rc" 1
   assert_contains "$out" "unknown command"
