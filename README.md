@@ -190,9 +190,59 @@ Each worktree's SIZE is measured on its own. Package managers such as bun and
 pnpm hard-link files across worktrees, so the summed sizes overstate real
 usage. `t3ctl disk` reports the real total (hard links counted once).
 
-`t3ctl worktree <id> info` shows branch, HEAD, upstream ahead/behind, whether
+`t3ctl worktree <id> [id...] info` shows branch, HEAD, upstream ahead/behind, whether
 HEAD is published, changes, processes whose cwd is inside the worktree, the
 artifact cleanup plan, and the removal verdict with reasons.
+
+### Multiple worktrees and bulk selection
+
+Pass multiple IDs or comma-separated IDs to any worktree action. Unique
+prefixes work too, and duplicates are handled once. Every supplied ID must
+resolve before any files are changed.
+
+```bash
+t3ctl worktree a83f21 63e4c3 info
+t3ctl worktree a83f21,63e4c3 clean
+t3ctl worktree a83f21 63e4c3 remove --dry-run
+```
+
+For bulk actions, use `worktrees info|clean|remove` with an explicit selection:
+
+```bash
+t3ctl worktrees clean --all --dry-run
+t3ctl --yes worktrees clean --all
+t3ctl worktrees clean --older-than 2w
+t3ctl worktrees clean --before 2026-10-01 --pushed
+t3ctl worktrees info --unpushed
+t3ctl worktrees remove --older-than 30d --safe --dry-run
+```
+
+The same filters are available on the worktree listing, for example
+`t3ctl worktrees --before 2026-10-01 --pushed --no-size`.
+
+| Selection | Meaning |
+|---|---|
+| `--all` | All discovered worktrees (bulk actions only) |
+| `--older-than DUR` | Last activity at least this old |
+| `--before YYYY-MM-DD` | Last activity strictly before local midnight on that date |
+| `--pushed` | HEAD is contained in a locally known remote branch |
+| `--unpushed` | HEAD is absent from every locally known remote branch |
+| `--safe` | Passes Git removal prechecks (changes, publication, repository state) |
+
+Filters combine with AND; unknown values do not match. Pushed status uses
+existing remote-tracking refs and does not fetch. `--pushed` does not imply
+clean source files, and `--safe` does not bypass the process checks performed
+immediately before removal. Dates refer to last activity, including the HEAD
+reflog, rather than creation date or commit date.
+
+`--dry-run` prints each selected worktree's info, artifact plan, and removal
+verdict without changing files. Destructive actions retain the existing
+per-worktree confirmation; use global `--yes` to skip prompts after reviewing
+the selection. A refusal or failure is reported for that worktree and the
+batch continues with the others. The batch returns a nonzero status if any
+action fails (the highest per-worktree exit code). An empty selection succeeds
+with a message. Bulk removal keeps every existing safety check and preserves
+branches.
 
 ### clean
 

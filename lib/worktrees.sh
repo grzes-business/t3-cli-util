@@ -452,8 +452,64 @@ wt_canonical_root() {
   WORKTREE_ROOT=$r
 }
 
+# Date cutoffs use local midnight, and always refer to last activity.
+wt_before_timestamp() {
+  [[ $1 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || return 1
+  date -d "$1 00:00:00" +%s 2>/dev/null
+}
+
+# Parse one filter option, returning how many argv entries it consumed.
+# The caller provides local older/before/published/safe_only variables.
+wt_filter_option() {
+  FILTER_SHIFT=1
+  local value=${1#*=}
+  case $1 in
+    --older-than | --before)
+      [[ -n ${2:-} ]] || die "$1 needs a value"
+      value=$2
+      FILTER_SHIFT=2
+      ;;
+  esac
+  case $1 in
+    --older-than | --older-than=*)
+      older=$(parse_duration "$value") || die "invalid duration '$value' (examples: 12h, 7d, 2w, 3mo)"
+      ;;
+    --before | --before=*)
+      before=$(wt_before_timestamp "$value") || die "invalid date '$value' (expected YYYY-MM-DD)"
+      ;;
+    --pushed | --unpushed)
+      local want=yes
+      [[ $1 == --unpushed ]] && want=no
+      [[ -z $published || $published == "$want" ]] || die "--pushed and --unpushed cannot be combined"
+      published=$want
+      ;;
+    --safe) safe_only=1 ;;
+    *) die "unknown option: $1" ;;
+  esac
+}
+
+# Filters are ANDed. Unknown values never satisfy a filter.
+wt_matches() {
+  local id=$1 older=$2 before=$3 published=$4 safe_only=$5 ts
+  ts=${WT_ATS[$id]}
+  if [[ -n $older ]]; then
+    [[ $ts =~ ^[0-9]+$ ]] && ((NOW - ts >= older)) || return 1
+  fi
+  if [[ -n $before ]]; then
+    [[ $ts =~ ^[0-9]+$ ]] && ((ts < before)) || return 1
+  fi
+  [[ -z $published || ${WT_PUB[$id]} == "$published" ]] || return 1
+  if ((safe_only)); then
+    [[ -z $(wt_reasons "$id") ]] || return 1
+  fi
+  return 0
+}
+
 cmd_worktrees() {
-  local sort=age older='' with_size=1 reverse=0
+  case ${1:-} in
+    info | clean | remove) cmd_worktrees_action "$@"; return ;;
+  esac
+  local sort=age older='' before='' published='' safe_only=0 with_size=1 reverse=0
   while (($#)); do
     case $1 in
       --sort)
@@ -465,12 +521,9 @@ cmd_worktrees() {
         sort=${1#*=}
         [[ $sort =~ ^(size|age|project|commit)$ ]] || die "--sort must be size, age, project or commit"
         ;;
-      --older-than)
-        older=$(parse_duration "${2:-}") || die "invalid duration '${2:-}' (examples: 12h, 7d, 2w, 3mo)"
-        shift
-        ;;
-      --older-than=*)
-        older=$(parse_duration "${1#*=}") || die "invalid duration '${1#*=}' (examples: 12h, 7d, 2w, 3mo)"
+      --older-than | --older-than=* | --before | --before=* | --pushed | --unpushed | --safe)
+        wt_filter_option "$1" "${2:-}"
+        shift "$((FILTER_SHIFT - 1))"
         ;;
       --no-size) with_size=0 ;;
       -r | --reverse) reverse=1 ;;
@@ -493,9 +546,7 @@ cmd_worktrees() {
   local id key ts lines=() total_kb=0 shown=0 safe=0 unknown_size=0
   for id in "${WT_IDS[@]}"; do
     ts=${WT_ATS[$id]}
-    if [[ -n $older ]]; then
-      [[ $ts =~ ^[0-9]+$ ]] && ((NOW - ts < older)) && continue
-    fi
+    wt_matches "$id" "$older" "$before" "$published" "$safe_only" || continue
     case $sort in
       size) key=${WT_SIZE[$id]}; [[ $key =~ ^[0-9]+$ ]] || key=0 ;;
       age) key=$ts; [[ $key =~ ^[0-9]+$ ]] || key=0 ;;
@@ -761,19 +812,90 @@ cmd_worktree_remove() {
   printf 'Removed worktree %s (%s). Branch %s still exists in %s.\n' "$id" "$p" "${WT_BRANCH[$id]}" "${WT_COMMON[$id]}"
 }
 
-cmd_worktree() {
-  local prefix=$1 action=$2
+# Each action gets a fresh inspection and an isolated shell: a refusal or
+# failure on one target does not prevent the remaining targets being handled.
+wt_run_batch() {
+  local action=$1 dry_run=$2 id rc=0 one_rc
   shift 2
-  (($# == 0)) || die "unexpected arguments: $*"
-  case $action in
-    info | clean | remove) ;;
-    *) die "unknown worktree action: $action (info, clean, remove)" ;;
-  esac
-  wt_select "$prefix" 1
+  if (($# == 0)); then
+    echo "No worktrees match the selection."
+    return 0
+  fi
+  printf 'Selected %d worktree(s) for %s%s.\n' "$#" "$action" "$([[ $dry_run == 1 ]] && echo ' (dry run)')"
+  for id in "$@"; do
+    if (
+      wt_select "$id" 1
+      NOW=$(date +%s)
+      if ((dry_run)); then
+        cmd_worktree_info
+      else
+        case $action in
+          info) cmd_worktree_info ;;
+          clean) cmd_worktree_clean ;;
+          remove) cmd_worktree_remove ;;
+        esac
+      fi
+    ); then
+      :
+    else
+      one_rc=$?
+      ((one_rc > rc)) && rc=$one_rc
+    fi
+  done
+  return "$rc"
+}
+
+cmd_worktrees_action() {
+  local action=$1 older='' before='' published='' safe_only=0 all=0 dry_run=0 id
+  local -a selected=()
+  shift
+  while (($#)); do
+    case $1 in
+      --all) all=1; shift ;;
+      --dry-run) dry_run=1; shift ;;
+      *) wt_filter_option "$1" "${2:-}"; shift "$FILTER_SHIFT" ;;
+    esac
+  done
+  [[ $all == 1 || -n $older || -n $before || -n $published || $safe_only == 1 ]] ||
+    die "select worktrees with --all, --older-than, --before, --pushed, --unpushed or --safe"
+  resolve_agent
+  wt_canonical_root
   NOW=$(date +%s)
-  case $action in
-    info) cmd_worktree_info ;;
-    clean) cmd_worktree_clean ;;
-    remove) cmd_worktree_remove ;;
-  esac
+  wt_load 0
+  for id in "${WT_IDS[@]}"; do
+    wt_matches "$id" "$older" "$before" "$published" "$safe_only" && selected+=("$id")
+  done
+  wt_run_batch "$action" "$dry_run" "${selected[@]}"
+}
+
+cmd_worktree() {
+  local action='' dry_run=0 arg prefix
+  local -a prefixes=() parts=() selected=()
+  local -A seen=()
+  for arg in "$@"; do
+    case $arg in
+      info | clean | remove)
+        [[ -z $action ]] || die "specify one worktree action (info, clean, remove)"
+        action=$arg
+        ;;
+      --dry-run) dry_run=1 ;;
+      -*) die "unknown option: $arg" ;;
+      *)
+        [[ -n $arg && $arg != ,* && $arg != *, && $arg != *,,* ]] || die "invalid worktree ID list '$arg'"
+        IFS=, read -r -a parts <<<"$arg"
+        prefixes+=("${parts[@]}")
+        ;;
+    esac
+  done
+  [[ -n $action && ${#prefixes[@]} -gt 0 ]] || die "usage: t3ctl worktree <id> [id...] info|clean|remove [--dry-run]"
+  # Resolve every ID before any mutation; invalid/ambiguous input cannot leave
+  # an earlier target already cleaned or removed. Deduplicate full IDs.
+  for prefix in "${prefixes[@]}"; do
+    wt_select "$prefix" 0
+    if [[ -z ${seen[$SEL_ID]:-} ]]; then
+      selected+=("$SEL_ID")
+      seen[$SEL_ID]=1
+    fi
+  done
+  wt_run_batch "$action" "$dry_run" "${selected[@]}"
 }

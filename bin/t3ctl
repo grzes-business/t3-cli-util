@@ -31,11 +31,17 @@ Worktrees:
   worktrees [opts]          list worktrees
       --sort size|age|project|commit   (default: age; newest/largest first)
       --older-than DUR                 e.g. 12h, 7d, 2w, 3mo
+      --before YYYY-MM-DD               last activity before local midnight
+      --pushed | --unpushed             HEAD on a remote branch, or absent
+      --safe                            passes Git removal prechecks
       --no-size                        skip disk usage (fast)
       -r, --reverse                    reverse the sort order
-  worktree <id> info        detailed state and safety checks
-  worktree <id> clean       delete generated artifacts (node_modules, .next, ...)
-  worktree <id> remove      git worktree remove, only if nothing can be lost
+  worktree <id> [id...] info|clean|remove [--dry-run]
+      IDs can also be comma-separated; unique prefixes are accepted
+      info: inspect; clean: delete generated artifacts; remove: guarded Git removal
+  worktrees info|clean|remove <selection> [--dry-run]
+      selection: --all or any combination of the filters above
+      --dry-run shows details and cleanup plans without changing files
 
 Host:
   disk                      filesystem and agent storage usage
@@ -87,7 +93,7 @@ main() {
     status | start | stop | restart | reset | update | logs) service_dispatch "$cmd" "$@" ;;
     worktrees) cmd_worktrees "$@" ;;
     worktree)
-      (($# >= 2)) || die "usage: t3ctl worktree <id> info|clean|remove"
+      (($# >= 2)) || die "usage: t3ctl worktree <id> [id...] info|clean|remove"
       cmd_worktree "$@"
       ;;
     disk) cmd_disk "$@" ;;
