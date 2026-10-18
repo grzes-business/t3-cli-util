@@ -236,10 +236,10 @@ immediately before removal. Dates refer to last activity, including the HEAD
 reflog, rather than creation date or commit date.
 
 `--dry-run` prints each selected worktree's info, artifact plan, and removal
-verdict without changing files. Destructive actions retain the existing
-per-worktree confirmation; use global `--yes` to skip prompts after reviewing
-the selection. A refusal or failure is reported for that worktree and the
-batch continues with the others. The batch returns a nonzero status if any
+verdict without changing files. Bulk cleaning shows the artifact plans and
+asks once for the entire selection. Removal asks for confirmation per worktree;
+use global `--yes` to skip prompts after reviewing the selection. A refusal or
+failure is reported for that worktree and the batch continues with the others. The batch returns a nonzero status if any
 action fails (the highest per-worktree exit code). An empty selection succeeds
 with a message. Bulk removal keeps every existing safety check and preserves
 branches.

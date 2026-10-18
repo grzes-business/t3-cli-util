@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034  # globals are consumed by other lib files
 # Shared helpers: output, configuration, user/privilege plumbing.
 
-T3CTL_VERSION="0.3.0"
+T3CTL_VERSION="0.3.1"
 
 # ---------------------------------------------------------------- output
 

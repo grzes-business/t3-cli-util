@@ -815,13 +815,38 @@ cmd_worktree_remove() {
 # Each action gets a fresh inspection and an isolated shell: a refusal or
 # failure on one target does not prevent the remaining targets being handled.
 wt_run_batch() {
-  local action=$1 dry_run=$2 id rc=0 one_rc
+  local action=$1 dry_run=$2 id rc=0 one_rc planned=0 procs
+  local T3CTL_ASSUME_YES=${T3CTL_ASSUME_YES:-0}
   shift 2
   if (($# == 0)); then
     echo "No worktrees match the selection."
     return 0
   fi
   printf 'Selected %d worktree(s) for %s%s.\n' "$#" "$action" "$([[ $dry_run == 1 ]] && echo ' (dry run)')"
+  if [[ $action == clean && $dry_run == 0 && $# -gt 1 && ${T3CTL_ASSUME_YES:-0} != 1 ]]; then
+    # Show all plans before asking once; accepting covers this fixed selection.
+    for id in "$@"; do
+      wt_select "$id" 0
+      printf '\nWorktree: %s (%s)\nGenerated artifacts:\n' "$(wt_title "$id")" "$id"
+      wt_show_plan "$id"
+      ((${#PLAN_DELETE[@]})) && planned=1
+      procs=$(wt_agent _wt_procs "${WT_PATH[$id]}")
+      if [[ -n $procs ]]; then
+        printf 'Warning: processes are running inside this worktree: %s\n' \
+          "$(awk '{print $2 "(" $1 ")"}' <<<"$procs" | paste -sd' ' -)"
+      fi
+    done
+    if ((!planned)); then
+      echo "Nothing to clean."
+      return 0
+    fi
+    echo "Source files and git state are not touched; reinstall/rebuild to recreate artifacts."
+    confirm "Clean generated artifacts in all $# selected worktrees?" || {
+      echo "Aborted."
+      return 1
+    }
+    T3CTL_ASSUME_YES=1
+  fi
   for id in "$@"; do
     if (
       wt_select "$id" 1
