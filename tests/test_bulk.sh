@@ -128,5 +128,57 @@ test_unknown_age_excluded_and_no_matches_ok() {
   assert_exists "$B/old/node_modules/data"
 }
 
+# Replace only terminal input; exercise the real selection and cleanup code.
+run_with_confirmation() (
+  source "$T3CTL_REPO/lib/common.sh"
+  source "$T3CTL_REPO/lib/worktrees.sh"
+  source "$T3CTL_REPO/lib/disk.sh"
+  load_config
+  confirm() {
+    [[ ${T3CTL_ASSUME_YES:-0} == 1 ]] && return 0
+    printf '%s\n' "$*" >>"$T/prompts"
+    [[ $answer == yes ]]
+  }
+  case $1 in
+    worktrees) shift; cmd_worktrees "$@" ;;
+    worktree) shift; cmd_worktree "$@" ;;
+  esac
+)
+
+test_clean_batch_confirms_once() {
+  setup_bulk
+  local answer=yes out
+  : >"$T/prompts"
+  out=$(run_with_confirmation worktrees clean --all)
+  assert_eq "$(wc -l <"$T/prompts")" 1 "one confirmation for the batch"
+  assert_missing "$B/old/node_modules"
+  assert_missing "$B/recent/node_modules"
+  assert_missing "$B/local/node_modules"
+}
+
+test_clean_multiple_ids_confirms_once() {
+  setup_bulk
+  local answer=yes out
+  : >"$T/prompts"
+  out=$(run_with_confirmation worktree "$OLD" "$RECENT" clean)
+  assert_eq "$(wc -l <"$T/prompts")" 1 "one confirmation for explicit IDs"
+  assert_missing "$B/old/node_modules"
+  assert_missing "$B/recent/node_modules"
+  assert_exists "$B/local/node_modules/data"
+}
+
+test_declining_batch_clean_preserves_every_target() {
+  setup_bulk
+  local answer=no out rc=0
+  : >"$T/prompts"
+  out=$(run_with_confirmation worktrees clean --all) || rc=$?
+  assert_eq "$rc" 1
+  assert_eq "$(wc -l <"$T/prompts")" 1
+  assert_contains "$out" "Aborted."
+  assert_exists "$B/old/node_modules/data"
+  assert_exists "$B/recent/node_modules/data"
+  assert_exists "$B/local/node_modules/data"
+}
+
 run_tests
 finish
