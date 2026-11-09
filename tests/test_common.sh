@@ -19,6 +19,50 @@ test_parse_duration() {
   return 0
 }
 
+test_parse_size_kb() {
+  assert_eq "$(parse_size_kb 500K)" 500
+  assert_eq "$(parse_size_kb 500M)" 512000
+  assert_eq "$(parse_size_kb 2g)" 2097152
+  assert_eq "$(parse_size_kb 1.5G)" 1572864
+  assert_eq "$(parse_size_kb 1MiB)" 1024
+  local bad
+  for bad in '' 5 M x5 '1 G' -1M '$(id)'; do
+    parse_size_kb "$bad" >/dev/null && fail "accepted invalid size '$bad'"
+  done
+  return 0
+}
+
+test_ui_bar_scales_and_handles_unknowns() {
+  source "$T3CTL_REPO/lib/ui.sh"
+  assert_eq "$(ui_bar 50 100 10)" "#####....."
+  assert_eq "$(ui_bar 100 100 4)" "####"
+  assert_eq "$(ui_bar 1 1000 8)" "#......." "positive values show at least one cell"
+  assert_eq "$(ui_bar 0 100 4)" "...."
+  assert_eq "$(ui_bar '?' 100 3)" "   " "unknown is blank"
+  assert_eq "$(ui_bar 5 0 3)" "   " "no maximum"
+}
+
+test_ui_table_aligns_columns_and_keeps_empty_cells() {
+  source "$T3CTL_REPO/lib/ui.sh"
+  local out
+  out=$(printf '%s\n' $'NAME\tSIZE\tNOTE' $'a\t1K\tx' $'longer\t200M\t' @rule $'{b}sum\t201M\t' | ui_table lrl)
+  assert_eq "$(sed -n 1p <<<"$out")" "NAME    SIZE  NOTE"
+  assert_eq "$(sed -n 3p <<<"$out")" "a         1K  x"
+  assert_eq "$(sed -n 4p <<<"$out")" "longer  200M  "
+  assert_eq "$(sed -n 2p <<<"$out")" "$(printf '%.0s-' {1..18})"
+  assert_eq "$(sed -n 6p <<<"$out")" "sum     201M  "
+}
+
+test_ui_glyphs_follow_the_locale() {
+  local snippet='source "$1/lib/common.sh"; source "$1/lib/ui.sh"; printf "%s" "$U_OK"' out
+  out=$(T3CTL_ASCII=1 LC_ALL=C.UTF-8 bash -c "$snippet" _ "$T3CTL_REPO")
+  assert_eq "$out" "o" "T3CTL_ASCII wins"
+  out=$(env -u T3CTL_ASCII LC_ALL=C.UTF-8 bash -c "$snippet" _ "$T3CTL_REPO")
+  assert_eq "$out" "●"
+  out=$(env -u T3CTL_ASCII LC_ALL=C bash -c "$snippet" _ "$T3CTL_REPO")
+  assert_eq "$out" "o" "non-UTF-8 locales fall back to ASCII"
+}
+
 test_human_formats() {
   assert_eq "$(human_kb 512)" "512K"
   assert_eq "$(human_kb 1536)" "1.5M"
@@ -71,8 +115,10 @@ test_missing_explicit_config() {
 test_usage_and_unknown_command() {
   local out rc=0
   out=$("$T3CTL" --help)
-  assert_contains "$out" "worktree <id> [id...] info|clean|remove"
-  assert_contains "$out" "worktrees info|clean|remove <selection> [--dry-run]"
+  assert_contains "$out" "worktree <id>[,id...] info|clean|remove"
+  assert_contains "$out" "worktrees info|clean|remove [selection] [--dry-run] [--force]"
+  assert_contains "$out" "--project NAME"
+  assert_contains "$out" "--force "
   out=$("$T3CTL" frobnicate 2>&1) || rc=$?
   assert_eq "$rc" 1
   assert_contains "$out" "unknown command"

@@ -35,7 +35,7 @@ test_list_columns_and_unknowns() {
   out=$(t3 worktrees)
   assert_contains "$out" "ID      PROJECT"
   assert_contains "$(grep ' wt-list ' <<<"$out")" "1M1U"
-  assert_contains "$(grep ' wt-list ' <<<"$out")" " no "
+  assert_contains "$(grep ' wt-list ' <<<"$out")" "! force"
   assert_contains "$out" "worktree(s)"
 }
 
@@ -46,7 +46,8 @@ test_clean_worktree_is_removable() {
   out=$(t3 worktree "$id" info)
   assert_contains "$out" "Removal: SAFE"
   out=$(t3 --yes worktree "$id" remove)
-  assert_contains "$out" "Removed worktree $id"
+  assert_contains "$out" "removed"
+  assert_contains "$out" "Removed 1, refused 0, failed 0."
   assert_missing "$W/wt-clean"
   git -C "$T/repos/app" rev-parse -q --verify refs/heads/wt-clean >/dev/null || fail "branch must be kept"
   [[ -z $(git -C "$T/repos/app" worktree list | grep wt-clean) ]] || fail "worktree still registered"
@@ -201,8 +202,8 @@ test_clean_artifacts_preserves_source() {
   assert_contains "$out" "reclaimable:"
 
   out=$(t3 --yes worktree "$id" clean)
-  assert_contains "$out" "Estimated reclaim:"
-  assert_contains "$out" "Before:"
+  assert_contains "$out" "Reclaimable:"
+  assert_contains "$out" "BEFORE"
   assert_contains "$out" "Freed:"
   assert_contains "$out" "build  (kept: contains tracked files)"
   assert_contains "$out" "coverage  (kept: not ignored by git)"

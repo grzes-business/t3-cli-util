@@ -14,10 +14,11 @@ t3ctl doctor                      # first thing to run when something is off
 t3ctl status | restart | reset | logs
 t3ctl update                      # update T3 using your configured updater
 t3ctl disk
-t3ctl worktrees --sort size
+t3ctl worktrees --project olta --sort size
 t3ctl worktree <id> info
-t3ctl worktree <id> clean         # drop node_modules/.next/... keep code + git
-t3ctl worktree <id> remove        # git worktree remove, only if nothing can be lost
+t3ctl worktrees clean --project olta --older-than 2w   # drop node_modules/.next/... keep code + git
+t3ctl worktrees remove --safe --older-than 30d         # git worktree remove, only if nothing can be lost
+t3ctl worktree <id> remove --force                     # abandoned work: discard it too
 ```
 
 ## Why
@@ -167,82 +168,110 @@ Each worktree gets a **stable ID**: the first 6 hex characters of
 `sha1(canonical path)`. Commands take an ID or any unique prefix of at least 3
 characters, never a path.
 
-`t3ctl worktrees [--sort size|age|project|commit] [--older-than 7d|2w|12h|3mo] [--no-size] [-r]`
+### One grammar
+
+Listing and every action share the same *selection* syntax. A selection is IDs
+(comma or space separated) and/or filters; everything combines with AND.
 
 ```text
-ID      PROJECT    NAME                        SIZE   AGE COMMIT DIRTY  AHEAD  SAFE  BRANCH
-324fdb  olta       t3code-029011b7             2.0G    1d     1d no     0      yes   OLTA-603
-63e4c3  olta       t3code-b85788c0             141M    3d     7d no     pushed yes   t3code/review-...
+t3ctl worktrees [list]  [selection] [--sort size|age|project|commit] [-r] [--no-size]
+t3ctl worktrees info    [selection]
+t3ctl worktrees clean   [selection] [--dry-run]
+t3ctl worktrees remove  [selection] [--dry-run] [--force]
+t3ctl worktree <id>[,id...] info|clean|remove ...      # same thing, by ID
 ```
 
-* **AGE**: time since the last file change, ignoring `.git` and artifact dirs
-  (the reflog counts too). **COMMIT**: age of HEAD.
-* **DIRTY**: `no`, or counts such as `3M2U` (modified, untracked).
-* **AHEAD**: commits ahead of upstream. `local` means no upstream and HEAD is
-  on no remote branch. `pushed` means no upstream, but HEAD is on a remote
-  branch.
-* **SAFE**: whether `remove` would be allowed.
-* Unknown values are shown as `?`, never as 0.
-* `--no-size` skips `du`. A cold-cache `du` over dozens of worktrees can take
-  a minute or more.
+| Filter | Selects worktrees whose... |
+|---|---|
+| `--all` | (actions only) everything |
+| `--project NAME[,NAME]` | project directory matches; case-insensitive globs, e.g. `--project 'olta*'` |
+| `--name GLOB` | directory name matches |
+| `--branch GLOB` | checked-out branch matches |
+| `--older-than DUR` / `--newer-than DUR` | last activity is at least / less than `DUR` (`12h`, `7d`, `2w`, `3mo`) |
+| `--before YYYY-MM-DD` | last activity is before local midnight on that date |
+| `--larger-than SIZE` | size exceeds `SIZE` (`500M`, `2G`); needs sizes, so not with `--no-size` |
+| `--pushed` / `--unpushed` | HEAD is / is not contained in a locally known remote branch |
+| `--dirty` / `--clean` | has / has no uncommitted changes (modified or untracked) |
+| `--safe`, `--status safe,risk,blocked` | removal verdict (see below) |
 
-Each worktree's SIZE is measured on its own. Package managers such as bun and
-pnpm hard-link files across worktrees, so the summed sizes overstate real
-usage. `t3ctl disk` reports the real total (hard links counted once).
+Repeating a filter (or comma-separating values) means OR *within* that filter:
+`--project olta,app --older-than 2w` is "(olta or app) and older than two weeks".
+Unknown values never match, so a worktree with unknown age is not "old". A
+`--project` that matches nothing is an error that lists the known projects, so
+a typo cannot silently select nothing. `--yes` is accepted anywhere, including
+after the command. Pushed status uses existing remote-tracking refs and does not
+fetch; dates refer to last activity, including the HEAD reflog.
 
-`t3ctl worktree <id> [id...] info` shows branch, HEAD, upstream ahead/behind, whether
-HEAD is published, changes, processes whose cwd is inside the worktree, the
-artifact cleanup plan, and the removal verdict with reasons.
+### Listing
 
-### Multiple worktrees and bulk selection
+```text
+$ t3ctl worktrees --project olta
+Filters: project=olta
+ID      PROJECT  NAME             SIZE          ACTIVE  COMMIT  CHANGES  SYNC     REMOVE   BRANCH
+────────────────────────────────────────────────────────────────────────────────────────────────────
+324fdb  olta     t3code-029011b7  2.0G  ████████  1d      1d      clean    in sync  ● safe   OLTA-603
+63e4c3  olta     t3code-b85788c0  141M  █░░░░░░░  3d      7d      3M2U     ↑2       ▲ force  t3code/review
+9d02aa  olta     main-checkout    1.1G  ████░░░░  2w      2w      clean    pushed   ✖ blocked main
 
-Pass multiple IDs or comma-separated IDs to any worktree action. Unique
-prefixes work too, and duplicates are handled once. Every supplied ID must
-resolve before any files are changed.
+3 of 8 worktree(s) · 3.2G summed
+  ● 1 safe to remove   ▲ 1 need --force   ✖ 1 blocked
 
-```bash
-t3ctl worktree a83f21 63e4c3 info
-t3ctl worktree a83f21,63e4c3 clean
-t3ctl worktree a83f21 63e4c3 remove --dry-run
+PROJECT  COUNT  SAFE  FORCE  BLOCKED  SIZE
+───────────────────────────────────────────────────────────
+olta         3     1      1        1  3.2G  ████████████
 ```
 
-For bulk actions, use `worktrees info|clean|remove` with an explicit selection:
+* **ACTIVE**: time since the last file change, ignoring `.git` and artifact
+  dirs (the reflog counts too). **COMMIT**: age of HEAD.
+* **CHANGES**: `clean`, or counts such as `3M2U` (modified, untracked).
+* **SYNC**: `in sync`, `↑2` / `↓1` (ahead / behind upstream), `local` (no
+  upstream and HEAD is on no remote branch) or `pushed` (no upstream, but HEAD
+  is on a remote branch).
+* **REMOVE** is the verdict `remove` would reach:
+
+| Verdict | Meaning | What happens |
+|---|---|---|
+| `● safe` | nothing can be lost | `remove` works |
+| `▲ force` | uncommitted or unpublished work exists | `remove` refuses; `remove --force` discards it |
+| `✖ blocked` | main checkout, locked or broken git state | never removable (processes running inside are checked at removal time and also block) |
+
+* Unknown values are `?`, never 0. `--no-size` skips `du` (a cold-cache `du`
+  over dozens of worktrees can take a minute).
+* Glyphs fall back to ASCII (`o ! x # .`) in non-UTF-8 locales or with
+  `T3CTL_ASCII=1`; colours are off when piped or when `NO_COLOR` is set.
+
+SIZE is measured per worktree. Package managers such as bun and pnpm hard-link
+files across worktrees, so the summed sizes overstate real usage.
+`t3ctl disk` reports the real total (hard links counted once).
+
+`info` shows branch, HEAD, upstream ahead/behind, whether HEAD is published,
+changes, processes whose cwd is inside the worktree, the artifact cleanup plan,
+and the removal verdict with its reasons (`▲` can be forced, `✖` cannot).
+
+### Plan, confirm once, execute, report
+
+`clean` and `remove` always work in the same four steps, for one worktree or a
+hundred:
+
+1. **Plan**: a table of the selection with what would happen to each one.
+2. **Confirm**: one prompt for the whole batch (`--yes` skips it). `--dry-run`
+   stops here.
+3. **Execute**: each worktree is re-validated right before acting. A refusal or
+   failure is reported for that worktree and the batch continues.
+4. **Report**: a result table, plus freed space and the filesystem's real
+   free-space change.
+
+Exit status is the highest per-worktree code: `0` ok, `1` failure or aborted,
+`3` refused, `4` unknown/ambiguous ID. An empty selection succeeds with a
+message.
 
 ```bash
 t3ctl worktrees clean --all --dry-run
-t3ctl --yes worktrees clean --all
-t3ctl worktrees clean --older-than 2w
-t3ctl worktrees clean --before 2026-10-01 --pushed
-t3ctl worktrees info --unpushed
-t3ctl worktrees remove --older-than 30d --safe --dry-run
+t3ctl worktrees clean --project olta --older-than 2w
+t3ctl worktrees remove --project olta --safe --dry-run
+t3ctl worktrees remove --pushed --clean --older-than 30d --yes
+t3ctl worktrees remove --project olta --branch 'OLTA-6*' --force
 ```
-
-The same filters are available on the worktree listing, for example
-`t3ctl worktrees --before 2026-10-01 --pushed --no-size`.
-
-| Selection | Meaning |
-|---|---|
-| `--all` | All discovered worktrees (bulk actions only) |
-| `--older-than DUR` | Last activity at least this old |
-| `--before YYYY-MM-DD` | Last activity strictly before local midnight on that date |
-| `--pushed` | HEAD is contained in a locally known remote branch |
-| `--unpushed` | HEAD is absent from every locally known remote branch |
-| `--safe` | Passes Git removal prechecks (changes, publication, repository state) |
-
-Filters combine with AND; unknown values do not match. Pushed status uses
-existing remote-tracking refs and does not fetch. `--pushed` does not imply
-clean source files, and `--safe` does not bypass the process checks performed
-immediately before removal. Dates refer to last activity, including the HEAD
-reflog, rather than creation date or commit date.
-
-`--dry-run` prints each selected worktree's info, artifact plan, and removal
-verdict without changing files. Bulk cleaning shows the artifact plans and
-asks once for the entire selection. Removal asks for confirmation per worktree;
-use global `--yes` to skip prompts after reviewing the selection. A refusal or
-failure is reported for that worktree and the batch continues with the others. The batch returns a nonzero status if any
-action fails (the highest per-worktree exit code). An empty selection succeeds
-with a message. Bulk removal keeps every existing safety check and preserves
-branches.
 
 ### clean
 
@@ -256,40 +285,73 @@ This deletes only directories that meet all of these conditions:
 
 Anything else is listed as `kept` with the reason. For example, a tracked
 `build/` folder is kept. A dirty worktree can still be cleaned, because source
-files and git state are never touched. The output shows before/after size and
-the actual change in filesystem free space. Freed space can be smaller than the
-size shown when files are hard-linked elsewhere.
+files and git state are never touched. The plan shows reclaimable space per
+worktree and per artifact type (`node_modules`, `.next`, ...) with bars; the
+report shows before/after size and the actual change in filesystem free space.
+Freed space can be smaller than the size shown when files are hard-linked
+elsewhere.
 
 ### remove
 
-`remove` refuses if any of these hold:
+`remove` classifies every blocker as **soft** (work could be lost) or **hard**
+(never overridable):
 
-* tracked modifications or untracked files,
-* the branch is ahead of its upstream,
-* there is no upstream and HEAD is not on any remote branch,
-* git state is broken, unregistered, locked, or mid rebase/merge/cherry-pick/bisect,
-* it is a main checkout rather than a linked worktree,
-* processes are running inside it,
-* the path is outside the root.
+| Blocker | Class | `--force` |
+|---|---|---|
+| tracked modifications or untracked files | soft | discards them |
+| branch ahead of its upstream | soft | allowed; the branch (and its commits) is kept |
+| no upstream and HEAD on no remote branch | soft | allowed; the branch is kept |
+| detached HEAD with unpublished commits | soft | allowed; **those commits become orphaned** |
+| mid rebase/merge/cherry-pick/bisect | soft | allowed |
+| unknown changes or upstream state | soft | allowed |
+| main checkout instead of a linked worktree | hard | refused |
+| git state broken, unregistered or **locked** | hard | refused (unlock it first) |
+| processes running inside | hard | refused |
+| path outside the root, ID mismatch | hard | refused |
 
-Example refusal:
+#### `--force`
 
-```text
-REFUSING TO REMOVE a83f21
+For a worktree whose work was abandoned (for example ahead of origin after the
+PR was discarded):
 
-Safety checks failed:
-  modified files: 3
-  untracked files: 2
-  branch ahead of origin/feat/foo: 1
-
-Inspect using:
-
-  t3ctl worktree a83f21 info
+```bash
+t3ctl worktree a83f21 remove --force
+t3ctl worktrees remove --project olta --unpushed --force --dry-run   # review first
 ```
 
-Right before acting, all checks run again as the agent user. Removal itself is
-`git worktree remove <path>` (no `--force`) followed by `git worktree prune`.
-The branch is kept. There is deliberately no force option.
+Without `--force`, a refusal tells you exactly this:
+
+```text
+REFUSING TO REMOVE a83f21  olta/t3code-029011b7
+
+Safety checks failed:
+  ▲ branch ahead of origin/feat/foo: 1
+  ▲ modified files: 3
+
+Discard it anyway (branch is kept; uncommitted work is lost):
+
+  t3ctl worktree a83f21 remove --force
+```
+
+With `--force` the plan names what is thrown away and what survives:
+
+```text
+ID      WORKTREE      SIZE  CHANGES  SYNC     PLAN     NOTE
+a83f21  olta/feat-a   2.9M  clean    ↑1       ▲ FORCE  branch feat-a keeps its unpublished commits
+c93c03  olta/feat-b   804K  3M2U     in sync  ▲ FORCE  discards 3 modified, 2 untracked
+```
+
+* `--force` runs `git worktree remove --force`. It never deletes branches, so
+  committed work stays reachable through the branch. Only uncommitted changes
+  (and detached-HEAD commits) are lost.
+* If the batch would destroy uncommitted work, you must type `discard` at one
+  prompt (non-interactive use needs `--yes`). If only branch-safe commits are
+  involved, the normal `y/N` prompt applies.
+* `--force` is long-form only, applies to `remove` only, and does not skip the
+  hard blockers above. Combine it with `--dry-run` to preview.
+
+Right before acting, the agent-side removal re-runs every check as the agent
+user, so state that changed since the plan is caught.
 
 ## disk / doctor
 
@@ -332,9 +394,11 @@ the real worktrees.
 bin/t3ctl          argument parsing + dispatch
 lib/common.sh      output helpers, config, agent/privilege plumbing
 lib/service.sh     user-systemd chain, status/start/stop/restart/reset/update/logs
+lib/ui.sh          glyphs, bars and aligned tables (ASCII fallback)
 lib/worktrees.sh   discovery, inspection, clean, remove (_wt_* run as agent)
 lib/disk.sh        disk + doctor
 ```
 
-Non-goals for v1: automatic or scheduled cleanup, daemons, databases, a TUI,
-force deletion, deleting branches, and git pushes/commits.
+Non-goals: automatic or scheduled cleanup, daemons, databases, a TUI, deleting
+branches, and git pushes/commits. Force deletion exists only as the explicit,
+previewable `remove --force` described above.

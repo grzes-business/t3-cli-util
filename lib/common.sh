@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034  # globals are consumed by other lib files
 # Shared helpers: output, configuration, user/privilege plumbing.
 
-T3CTL_VERSION="0.3.1"
+T3CTL_VERSION="0.4.0"
 
 # ---------------------------------------------------------------- output
 
@@ -32,6 +32,21 @@ confirm() {
   fi
   read -r -p "$prompt [y/N] " reply || return 1
   [[ $reply == [yY] || $reply == [yY][eE][sS] ]]
+}
+
+# Like confirm, but the answer must be the exact phrase (for destructive,
+# hard-to-undo actions). Honours T3CTL_ASSUME_YES (--yes).
+confirm_phrase() {
+  local prompt=$1 phrase=$2 reply
+  if [[ ${T3CTL_ASSUME_YES:-0} == 1 ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    note "Not a terminal and --yes not given; aborting."
+    return 1
+  fi
+  read -r -p "$prompt " reply || return 1
+  [[ $reply == "$phrase" ]]
 }
 
 # Human-readable size from KiB.
@@ -87,6 +102,14 @@ parse_duration() {
     w) printf '%d' $((n * 604800)) ;;
     mo) printf '%d' $((n * 2592000)) ;;
   esac
+}
+
+# Parse a size such as 500M, 2G, 1.5G or 100K into KiB (unit is required).
+parse_size_kb() {
+  local v=${1,,}
+  [[ $v =~ ^([0-9]+)(\.[0-9]+)?(k|m|g|t)(i?b)?$ ]] || return 1
+  awk -v n="${BASH_REMATCH[1]}${BASH_REMATCH[2]}" -v u="${BASH_REMATCH[3]}" \
+    'BEGIN { m = (u == "k") ? 1 : (u == "m") ? 1024 : (u == "g") ? 1048576 : 1073741824; printf "%d", n * m }'
 }
 
 # ---------------------------------------------------------- configuration

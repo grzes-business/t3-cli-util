@@ -6,6 +6,8 @@ T3CTL_HOME=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." &&
 
 # shellcheck source=lib/common.sh
 source "$T3CTL_HOME/lib/common.sh"
+# shellcheck source=lib/ui.sh
+source "$T3CTL_HOME/lib/ui.sh"
 # shellcheck source=lib/service.sh
 source "$T3CTL_HOME/lib/service.sh"
 # shellcheck source=lib/worktrees.sh
@@ -27,28 +29,35 @@ Service (agent's systemd user service):
 
   status | start | stop | restart | reset | update | logs   aliases for the above
 
-Worktrees:
-  worktrees [opts]          list worktrees
-      --sort size|age|project|commit   (default: age; newest/largest first)
-      --older-than DUR                 e.g. 12h, 7d, 2w, 3mo
-      --before YYYY-MM-DD               last activity before local midnight
-      --pushed | --unpushed             HEAD on a remote branch, or absent
-      --safe                            passes Git removal prechecks
-      --no-size                        skip disk usage (fast)
-      -r, --reverse                    reverse the sort order
-  worktree <id> [id...] info|clean|remove [--dry-run]
-      IDs can also be comma-separated; unique prefixes are accepted
-      info: inspect; clean: delete generated artifacts; remove: guarded Git removal
-  worktrees info|clean|remove <selection> [--dry-run]
-      selection: --all or any combination of the filters above
-      --dry-run shows details and cleanup plans without changing files
+Worktrees:   one grammar for listing and for every action
+  worktrees [list] [selection] [--sort size|age|project|commit] [-r] [--no-size]
+  worktrees info|clean|remove [selection] [--dry-run] [--force]
+  worktree <id>[,id...] info|clean|remove [--dry-run] [--force]   (same, by ID)
+
+  selection = IDs (unique prefixes ok) and/or filters, combined with AND:
+      --all                        every worktree (actions need --all, IDs or a filter)
+      --project NAME[,NAME]        project directory, globs ok (--project 'olta*')
+      --name GLOB                  worktree directory name
+      --branch GLOB                checked-out branch
+      --older-than DUR             last activity at least this old (12h, 7d, 2w, 3mo)
+      --newer-than DUR             last activity more recent than this
+      --before YYYY-MM-DD          last activity before local midnight
+      --larger-than SIZE           e.g. 500M, 2G
+      --pushed | --unpushed        HEAD on a remote branch, or on none
+      --dirty | --clean            has / has no uncommitted changes
+      --safe | --status LIST       removal verdict: safe, risk (needs --force), blocked
+  info    inspect; clean: delete generated artifacts; remove: git worktree remove
+  --dry-run   show the plan and change nothing
+  --force     (remove) also remove worktrees that fail the safety checks, e.g. ahead
+              of origin or with uncommitted changes. Discards uncommitted work;
+              branches are kept. Locked, broken and main checkouts stay protected.
 
 Host:
   disk                      filesystem and agent storage usage
   doctor                    diagnose runtime and storage health
 
 Options:
-  -y, --yes                 do not ask for confirmation
+  -y, --yes                 do not ask for confirmation (also accepted after the command)
   -h, --help                show this help
   -V, --version             show version
 
@@ -93,7 +102,7 @@ main() {
     status | start | stop | restart | reset | update | logs) service_dispatch "$cmd" "$@" ;;
     worktrees) cmd_worktrees "$@" ;;
     worktree)
-      (($# >= 2)) || die "usage: t3ctl worktree <id> [id...] info|clean|remove"
+      (($# >= 2)) || die "usage: t3ctl worktree <id> [id...] info|clean|remove [--dry-run] [--force]"
       cmd_worktree "$@"
       ;;
     disk) cmd_disk "$@" ;;

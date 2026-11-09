@@ -11,7 +11,7 @@ CURRENT_TEST=''
 T=$(mktemp -d "${TMPDIR:-/tmp}/t3ctl-test.XXXXXX")
 trap 'rm -rf -- "$T"' EXIT
 
-export NO_COLOR=1 GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com \
+export NO_COLOR=1 T3CTL_ASCII=1 GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com \
   GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 export HOME="$T/home"
 mkdir -p "$HOME"

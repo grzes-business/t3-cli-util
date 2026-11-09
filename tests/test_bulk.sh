@@ -83,8 +83,10 @@ test_remove_continues_after_refusal() {
   local out rc=0
   out=$(t3 --yes worktree "$LOCAL" "$OLD" remove) || rc=$?
   assert_eq "$rc" 3
-  assert_contains "$out" "REFUSING TO REMOVE $LOCAL"
-  assert_contains "$out" "Removed worktree $OLD"
+  assert_contains "$(grep "^$LOCAL" <<<"$out")" "refuse"
+  assert_contains "$out" "branch ahead of origin/local: 1"
+  assert_contains "$(grep "^$OLD" <<<"$out")" "removed"
+  assert_contains "$out" "Removed 1, refused 1, failed 0."
   assert_exists "$B/local/src/index.js"
   assert_missing "$B/old"
 }
@@ -95,7 +97,7 @@ test_bulk_remove_safe_and_before() {
   # Remove ignored artifacts first: git worktree remove refuses them too.
   t3 --yes worktrees clean --all >/dev/null
   out=$(t3 --yes worktrees remove --before 2021-01-01 --safe)
-  assert_contains "$out" "Removed worktree $OLD"
+  assert_contains "$(grep "^$OLD" <<<"$out")" "removed"
   assert_missing "$B/old"
   assert_exists "$B/local"
   assert_exists "$B/recent"
@@ -131,6 +133,7 @@ test_unknown_age_excluded_and_no_matches_ok() {
 # Replace only terminal input; exercise the real selection and cleanup code.
 run_with_confirmation() (
   source "$T3CTL_REPO/lib/common.sh"
+  source "$T3CTL_REPO/lib/ui.sh"
   source "$T3CTL_REPO/lib/worktrees.sh"
   source "$T3CTL_REPO/lib/disk.sh"
   load_config
